@@ -1,0 +1,12 @@
+{
+  "name": "maltracer-popup",
+  "version": "1.0.0",
+  "description": "MalTracer — Electron alert popup (frameless, transparent, always-on-top)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^42.4.1"
+  }
+}

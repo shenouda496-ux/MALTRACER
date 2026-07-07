@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MalTracer — Incident Response</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        oklch(0.16 0.04 260);
+    --bg2:       oklch(0.19 0.05 262);
+    --card:      oklch(0.21 0.05 262);
+    --border:    oklch(0.32 0.05 262);
+    --fg:        oklch(0.98 0.005 250);
+    --muted:     oklch(0.72 0.03 256);
+    --primary:   oklch(0.62 0.22 258);
+    --glow:      oklch(0.74 0.18 245);
+    --danger:    oklch(0.65 0.24 25);
+    --warn:      oklch(0.78 0.17 75);
+    --info:      oklch(0.74 0.18 245);
+    --ok:        oklch(0.72 0.18 155);
+    --grad:      linear-gradient(135deg, oklch(0.62 0.22 258), oklch(0.74 0.18 245));
+    --radius:    12px;
+  }
+
+  /* ── PAGE — popup is the only UI, centered on a dark canvas ── */
+  html, body {
+    height: 100%; min-height: 100vh;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .page    { display: contents; }
+  .menubar { display: none; }
+  footer   { display: none; }
+  .main    { display: flex; align-items: center; justify-content: center; width: 100%; padding: 0; }
+
+  /* hero hidden */
+
+  /* ── POPUP WINDOW ── */
+  .popup-wrap { position: relative; }
+
+  .popup {
+    position: relative; z-index: 1;
+    width: 420px; border-radius: 20px; border: 1px solid var(--border);
+    overflow: hidden;
+    background: radial-gradient(120% 80% at 0% 0%, oklch(0.28 0.1 258) 0%, transparent 60%),
+                radial-gradient(120% 80% at 100% 0%, oklch(0.32 0.13 250) 0%, transparent 55%),
+                oklch(0.16 0.04 260);
+    box-shadow: 0 30px 80px -20px oklch(0.05 0.05 260 / 0.8);
+    max-height: 90vh;
+  }
+  @media (max-width: 860px) { .popup { width: 100%; max-width: 420px; margin: 0 auto; } }
+
+  /* Title bar */
+  .titlebar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    background: oklch(0.18 0.05 262); cursor: grab; user-select: none;
+  }
+  .titlebar-icon { display: flex; align-items: center; gap: 6px; }
+  .titlebar-icon img { width: 16px; height: 16px; border-radius: 4px; }
+  .titlebar-title { flex: 1; text-align: center; font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--muted); }
+  .titlebar-close {
+    width: 24px; height: 24px; border: none; background: transparent; color: var(--muted);
+    border-radius: 4px; cursor: pointer; font-size: 16px; display: grid; place-items: center; transition: .15s;
+  }
+  .titlebar-close:hover { background: var(--danger); color: #fff; }
+
+  /* Popup body */
+  .popup-body { padding: 14px; max-height: calc(90vh - 42px); overflow-y: auto; }
+
+  /* Tray strip */
+  .tray-strip {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 10px;
+    background: oklch(0.19 0.05 262); font-family: monospace; font-size: 10px; color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .tray-strip span { color: var(--fg); }
+  .tray-strip .mode { color: var(--glow); }
+
+  /* Header */
+  .popup-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .popup-brand { display: flex; align-items: center; gap: 10px; }
+  .popup-brand img { width: 30px; height: 30px; border-radius: 8px; box-shadow: 0 6px 18px oklch(0.53 0.22 258 / 0.45); }
+  .popup-brand-text h2 { font-size: 14px; font-weight: 900; letter-spacing: .05em; }
+  .popup-brand-text p { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+  /* Status pill */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    cursor: pointer; border: none; transition: opacity .15s;
+  }
+  .status-pill:hover { opacity: 0.85; }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; animation: pulse 1.8s ease-in-out infinite; }
+  .status-active   { background: oklch(0.72 0.18 155 / 0.15); color: var(--ok); }
+  .status-active   .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .status-paused   { background: oklch(0.78 0.17 75 / 0.18); color: var(--warn); }
+  .status-paused   .dot { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
+  .status-isolated { background: oklch(0.65 0.24 25 / 0.15); color: var(--danger); }
+  .status-isolated .dot { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+
+  /* Threat level banner */
+  .threat-banner {
+    position: relative; overflow: hidden; padding: 12px 16px; border-radius: 16px;
+    border: 1px solid var(--border); margin-bottom: 12px;
+    background: linear-gradient(135deg, oklch(0.26 0.1 258) 0%, oklch(0.42 0.18 258) 100%);
+  }
+  .threat-banner::after {
+    content: ''; position: absolute; right: -48px; top: -64px;
+    width: 176px; height: 176px; border-radius: 50%;
+    background: var(--primary); opacity: 0.4; filter: blur(16px);
+  }
+  .threat-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; color: oklch(0.85 0.05 250); }
+  .threat-value { font-size: 26px; font-weight: 900; letter-spacing: .05em; margin: 2px 0; }
+  .threat-value.low  { color: var(--ok); }
+  .threat-value.elevated { color: var(--warn); }
+  .threat-value.high { color: oklch(0.78 0.2 25); }
+  .threat-scan { font-size: 11px; color: oklch(0.88 0.04 250); }
+
+  /* Stats grid */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .stat-card {
+    padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--card);
+  }
+  .stat-card.danger { border-color: oklch(0.65 0.24 25 / 0.5); background: oklch(0.65 0.24 25 / 0.1); }
+  .stat-card .num { font-size: 18px; font-weight: 700; line-height: 1.2; }
+  .stat-card .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: 2px; }
+
+  /* Alert rows */
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+
+  .alert-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-bottom: 6px;
+    border-radius: 12px; border: 1px solid var(--border); background: var(--card);
+    cursor: pointer; transition: transform .12s, border-color .12s;
+  }
+  .alert-row:hover { transform: translateY(-1px); border-color: var(--glow); }
+  .alert-row.danger { animation: danger-pulse 1.6s ease-in-out infinite; }
+
+  @keyframes danger-pulse {
+    0%,100% { box-shadow: 0 0 0 1px oklch(0.65 0.24 25 / 0.6), 0 0 18px oklch(0.65 0.24 25 / 0.45); border-color: oklch(0.65 0.24 25 / 0.7); }
+    50%      { box-shadow: 0 0 0 1px oklch(0.65 0.24 25 / 0.9), 0 0 28px oklch(0.65 0.24 25 / 0.75); border-color: oklch(0.65 0.24 25); }
+  }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+
+  .alert-icon {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 13px; font-weight: 900;
+  }
+  .icon-danger { background: oklch(0.65 0.24 25 / 0.18); color: oklch(0.78 0.2 25); }
+  .icon-warn   { background: oklch(0.78 0.17 75 / 0.2); color: oklch(0.85 0.18 75); }
+  .icon-info   { background: oklch(0.74 0.18 245 / 0.2); color: oklch(0.78 0.15 245); }
+  .icon-ok     { background: oklch(0.72 0.18 155 / 0.18); color: var(--ok); }
+
+  .alert-body { flex: 1; min-width: 0; }
+  .alert-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert-meta  { font-size: 10.5px; color: var(--muted); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+
+  .btn-contain {
+    flex-shrink: 0; padding: 4px 8px; border-radius: 6px; border: none; cursor: pointer;
+    background: var(--warn); color: oklch(0.18 0.04 260); font-size: 10.5px; font-weight: 700;
+    transition: filter .15s;
+  }
+  .btn-contain:hover { filter: brightness(1.1); }
+  .btn-view {
+    flex-shrink: 0; padding: 4px 8px; border-radius: 6px; cursor: pointer;
+    background: oklch(0.65 0.24 25 / 0.15); border: 1px solid oklch(0.65 0.24 25 / 0.6);
+    color: oklch(0.85 0.2 25); font-size: 10.5px; font-weight: 700; transition: background .15s;
+  }
+  .btn-view:hover { background: oklch(0.65 0.24 25 / 0.25); }
+
+  /* Action buttons */
+  .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .btn-primary {
+    padding: 10px 12px; border-radius: 12px; border: none; cursor: pointer;
+    background: var(--grad); color: #fff; font-size: 12.5px; font-weight: 600;
+    box-shadow: 0 8px 22px -8px oklch(0.62 0.22 258 / 0.7); transition: transform .12s;
+  }
+  .btn-primary:hover { transform: translateY(-2px); }
+  .btn-outline {
+    padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border);
+    background: transparent; color: var(--fg); font-size: 12.5px; font-weight: 600; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .btn-outline:hover { border-color: var(--glow); background: oklch(0.62 0.22 258 / 0.1); }
+
+  /* Bottom nav */
+  .bottom-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 12px; padding: 4px; border: 1px solid var(--border); border-radius: 14px; background: oklch(0.18 0.05 262); }
+  .nav-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 6px 8px; border-radius: 10px; border: none; background: transparent;
+    color: var(--muted); font-size: 10px; font-weight: 600; cursor: pointer; transition: .15s;
+  }
+  .nav-btn:hover { color: var(--fg); }
+  .nav-btn.active { background: oklch(0.62 0.22 258 / 0.2); color: var(--glow); }
+
+  /* ── OVERLAY base ── */
+  .overlay {
+    position: absolute; inset: 0; z-index: 30; background: oklch(0 0 0 / 0.65);
+    display: flex;
+  }
+
+  /* ── CONTAIN SHEET — bottom-sheet matching Alerts tab style ── */
+  .contain-sheet {
+    width: 100%; background: oklch(0.16 0.04 260);
+    border-radius: 20px 20px 0 0; border: 1px solid var(--border); border-bottom: none;
+    padding: 14px 14px 0;
+    box-shadow: 0 -24px 60px -10px oklch(0 0 0 / 0.6);
+    animation: sheetUp .25s cubic-bezier(.22,1,.36,1);
+    max-height: 85vh; display: flex; flex-direction: column;
+  }
+  @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  .sheet-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border); margin-bottom: 10px;
+  }
+  .sheet-title { font-size: 14px; font-weight: 800; letter-spacing: .01em; }
+  .sheet-sub   { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin-top: 2px; }
+
+  .sheet-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-bottom: 6px; }
+
+  /* Sheet rows — identical class names to alert rows so same CSS applies */
+  .sheet-row {
+    display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+    border-radius: 12px; border: 1px solid var(--border); background: var(--card);
+    transition: transform .12s, border-color .12s;
+  }
+  .sheet-row.is-threat {
+    border-color: oklch(0.78 0.17 75 / 0.7);
+    background: oklch(0.78 0.17 75 / 0.06);
+    animation: warnPulse 2s ease-in-out infinite;
+  }
+  @keyframes warnPulse {
+    0%,100% { box-shadow: 0 0 0 1px oklch(0.78 0.17 75 / 0.4), 0 0 14px oklch(0.78 0.17 75 / 0.25); }
+    50%      { box-shadow: 0 0 0 1px oklch(0.78 0.17 75 / 0.8), 0 0 22px oklch(0.78 0.17 75 / 0.45); }
+  }
+  .sheet-icon {
+    width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 13px; font-weight: 900;
+  }
+  .sicon-ok     { background: oklch(0.72 0.18 155 / 0.15); color: var(--ok); }
+  .sicon-info   { background: oklch(0.74 0.18 245 / 0.18); color: oklch(0.78 0.15 245); }
+  .sicon-warn   { background: oklch(0.78 0.17 75 / 0.22); color: oklch(0.85 0.18 75); }
+  .sicon-danger { background: oklch(0.65 0.24 25 / 0.18); color: oklch(0.78 0.2 25); }
+
+  .sheet-body { flex: 1; min-width: 0; }
+  .sheet-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sheet-meta { font-size: 10.5px; color: var(--muted); font-family: monospace; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .btn-sheet-contain {
+    flex-shrink: 0; padding: 5px 10px; border-radius: 8px; border: none; cursor: pointer;
+    background: oklch(0.78 0.17 75); color: oklch(0.14 0.04 260);
+    font-size: 11px; font-weight: 800; letter-spacing: .02em; transition: filter .15s, transform .1s;
+  }
+  .btn-sheet-contain:hover { filter: brightness(1.1); transform: scale(1.03); }
+
+  .confirm-card {
+    background: oklch(0.14 0.04 260 / 0.6); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; font-family: monospace; font-size: 11.5px;
+    line-height: 1.9; margin-bottom: 2px;
+  }
+  .confirm-card .hl { color: oklch(0.85 0.18 75); font-weight: 700; }
+
+  .sheet-footer {
+    border-top: 1px solid var(--border); padding: 10px 0 14px;
+    display: flex; justify-content: center;
+  }
+  .btn-dismiss {
+    background: transparent; border: none; color: var(--muted); font-size: 11.5px;
+    font-weight: 600; cursor: pointer; padding: 4px 12px; border-radius: 8px;
+    transition: color .15s, background .15s;
+  }
+  .btn-dismiss:hover { color: var(--fg); background: var(--card); }
+
+  /* ── PANEL: DETAIL ── */
+  .detail-panel {
+    position: absolute; inset: 0; z-index: 20; background: oklch(0.16 0.04 260);
+    display: flex; flex-direction: column;
+    animation: slideIn .2s ease-out;
+  }
+  @keyframes slideIn { from { opacity:0; transform: translateX(16px); } to { opacity:1; transform: translateX(0); } }
+  .panel-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .btn-back { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; display: grid; place-items: center; }
+  .btn-back:hover { border-color: var(--glow); color: var(--fg); }
+  .panel-title { flex: 1; font-size: 13px; font-weight: 700; }
+  .panel-sub { font-family: monospace; font-size: 10.5px; color: var(--muted); }
+  .severity-badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+  .badge-danger { background: oklch(0.65 0.24 25 / 0.18); color: oklch(0.78 0.2 25); }
+  .badge-warn   { background: oklch(0.78 0.17 75 / 0.2); color: oklch(0.85 0.18 75); }
+  .badge-info   { background: oklch(0.74 0.18 245 / 0.2); color: oklch(0.78 0.15 245); }
+  .badge-ok     { background: oklch(0.72 0.18 155 / 0.18); color: var(--ok); }
+
+  .panel-body { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .info-card { padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); }
+  .info-card .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  .info-card .val { font-size: 12px; font-weight: 600; margin-top: 2px; font-family: monospace; }
+  .path-card { padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); }
+  .path-card .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 4px; }
+  .path-card .val { font-size: 11px; word-break: break-all; font-family: monospace; }
+
+  .timeline { padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); }
+  .timeline .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 10px; }
+  .timeline ol { list-style: none; padding-left: 20px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+  .timeline li { position: relative; }
+  .timeline .dot {
+    position: absolute; left: -26px; top: 2px; width: 14px; height: 14px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 9px; font-weight: 700;
+  }
+  .dot-ok  { background: var(--ok); color: oklch(0.16 0.04 260); }
+  .dot-pend{ background: var(--warn); color: oklch(0.16 0.04 260); }
+  .timeline .act { font-size: 12px; font-weight: 600; }
+  .timeline .ts  { font-size: 10px; color: var(--muted); font-family: monospace; }
+
+  .panel-footer { border-top: 1px solid var(--border); padding: 12px; }
+  .btn-export { width: 100%; padding: 10px; border-radius: 12px; border: none; background: var(--grad); color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+
+  /* ── SCREEN: ALL ALERTS ── */
+  .filter-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .filter-tab {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card); color: var(--muted);
+    font-size: 10.5px; font-weight: 600; cursor: pointer; transition: .15s;
+  }
+  .filter-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .filter-tab .n { padding: 0 6px; border-radius: 999px; font-size: 9.5px; font-weight: 700; background: oklch(1 0 0 / 0.25); }
+  .alerts-list { max-height: 360px; overflow-y: auto; padding-right: 4px; }
+
+  /* ── SCREEN: EMAIL ── */
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 28px 16px;
+    text-align: center; cursor: pointer; transition: .15s; background: oklch(0.21 0.05 262 / 0.5);
+    margin-bottom: 12px;
+  }
+  .drop-zone:hover, .drop-zone.drag { border-color: var(--glow); background: var(--card); }
+  .drop-zone svg { color: var(--glow); margin-bottom: 8px; }
+  .drop-zone h3 { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+  .drop-zone p { font-size: 10.5px; color: var(--muted); }
+
+  .file-pill { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font-family: monospace; font-size: 11px; margin-bottom: 12px; }
+  .file-pill .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-pill .size { color: var(--muted); flex-shrink: 0; margin-left: 8px; }
+
+  .verdict-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; border: 1px solid; margin-bottom: 8px; }
+  .verdict-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; }
+  .verdict-value { font-size: 13px; font-weight: 900; text-transform: uppercase; }
+  .verdict-clean { background: oklch(0.72 0.18 155 / 0.18); border-color: oklch(0.72 0.18 155 / 0.5); color: var(--ok); }
+  .verdict-suspicious { background: oklch(0.78 0.17 75 / 0.18); border-color: oklch(0.78 0.17 75 / 0.5); color: var(--warn); }
+  .verdict-malicious { background: oklch(0.65 0.24 25 / 0.15); border-color: oklch(0.65 0.24 25 / 0.5); color: var(--danger); }
+
+  .accordion { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--card); margin-bottom: 6px; }
+  .accordion-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; width: 100%; background: none; border: none; color: var(--fg); text-align: left; }
+  .accordion-body { border-top: 1px solid var(--border); padding: 8px 12px; font-size: 11.5px; color: var(--muted); background: oklch(0.14 0.04 260 / 0.4); }
+
+  /* ── LIVE EVENTS banner ── */
+  #live-banner { display: none; position: fixed; top: 48px; left: 50%; transform: translateX(-50%); z-index: 100; background: oklch(0.62 0.22 258); color: #fff; font-size: 11px; font-weight: 700; padding: 6px 16px; border-radius: 999px; box-shadow: 0 4px 20px oklch(0.62 0.22 258 / 0.5); letter-spacing: .05em; animation: fadeup .3s ease; }
+  @keyframes fadeup { from { opacity:0; transform: translate(-50%, 8px); } to { opacity:1; transform: translate(-50%, 0); } }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="live-banner">⚡ New threat event received</div>
+
+<div class="page">
+  <!-- Fake menu bar -->
+  <div class="menubar">
+    <div><span class="dot">●</span>MalTracer Daemon<span style="margin-left:16px;opacity:.6">File</span><span style="margin-left:12px;opacity:.6">View</span><span style="margin-left:12px;opacity:.6">Help</span></div>
+    <div style="display:flex;gap:12px">EN &nbsp;🛡️&nbsp; <span id="clock"></span></div>
+  </div>
+
+  <main class="main">
+    <!-- Hero text -->
+    <section class="hero">
+      <div style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--card);border-radius:999px;padding:4px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);margin-bottom:16px">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok);display:inline-block"></span>
+        Native tray app · v1.0.0
+      </div>
+      <h1>Detect. Contain.<br><span>Investigate.</span></h1>
+      <p>MalTracer runs as a lightweight daemon on your machine and surfaces a native popup when something looks wrong. Pause monitoring, isolate the device, contain a process, or scan a suspicious <code style="font-family:monospace;background:var(--card);padding:2px 6px;border-radius:4px;color:var(--glow)">.eml</code> file — all without opening a console.</p>
+      <ul>
+        <li>Native desktop popup — no browser required</li>
+        <li>One-click process containment with 60s safety countdown</li>
+        <li>Local .eml scanner: headers, body, attachments</li>
+        <li>Sliding incident detail panel with action timeline</li>
+        <li>Live events fed from simulation test runner</li>
+      </ul>
+      <div class="pills">
+        <span class="pill">⌘ + ⇧ + M to summon</span>
+        <span class="pill">Runs in tray</span>
+        <span class="pill">Windows · Linux · macOS</span>
+      </div>
+    </section>
+
+    <!-- Popup widget -->
+    <section class="popup-wrap">
+      <div class="popup" id="popup">
+        <!-- Title bar -->
+        <div class="titlebar" id="titlebar">
+          <div class="titlebar-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div class="titlebar-title">MalTracer — Incident Response</div>
+          <button class="titlebar-close" onclick="closePopup()">×</button>
+        </div>
+
+        <!-- Body -->
+        <div class="popup-body" id="popup-body">
+          <!-- Dashboard screen -->
+          <div id="screen-dashboard">
+            <div class="popup-header">
+              <div class="popup-brand">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--glow);filter:drop-shadow(0 0 8px var(--glow))"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <div class="popup-brand-text"><h2>MalTracer</h2><p>Incident Response</p></div>
+              </div>
+              <button class="status-pill status-active" id="status-pill" onclick="toggleStatus()">
+                <span class="dot"></span><span id="status-label">Active</span>
+              </button>
+            </div>
+
+            <div class="tray-strip">
+              <span>last scan <span id="last-scan">2 min ago</span></span>
+              <span>uptime <span id="uptime">00:00:00</span></span>
+              <span>mode <span class="mode" id="mode-label">Monitor</span></span>
+            </div>
+
+            <div class="threat-banner">
+              <div class="threat-label">Threat level</div>
+              <div class="threat-value elevated" id="threat-value">ELEVATED</div>
+              <div class="threat-scan">Last scan <span id="threat-scan-time">2 min ago</span></div>
+            </div>
+
+            <div class="stats-grid">
+              <div class="stat-card"><div class="num" id="stat-files">1,284</div><div class="lbl">Files monitored</div></div>
+              <div class="stat-card"><div class="num" id="stat-procs">42</div><div class="lbl">Processes</div></div>
+              <div class="stat-card danger"><div class="num" id="stat-quar">3</div><div class="lbl">Quarantined</div></div>
+              <div class="stat-card danger"><div class="num" id="stat-inc">2</div><div class="lbl">Open incidents</div></div>
+            </div>
+
+            <div class="section-header"><span class="section-label">Recent alerts</span></div>
+            <div id="recent-alerts"></div>
+
+            <div class="action-grid">
+              <button class="btn-primary" onclick="quickScan()">Run quick scan</button>
+              <button class="btn-outline" id="isolate-btn" onclick="toggleIsolate()">Isolate device</button>
+            </div>
+          </div>
+
+          <!-- All alerts screen -->
+          <div id="screen-alerts" style="display:none">
+            <div class="popup-header" style="margin-bottom:8px">
+              <div class="popup-brand-text"><h2 style="font-size:14px">All alerts</h2><p style="font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)">Last 24 hours</p></div>
+            </div>
+            <div class="filter-tabs" id="filter-tabs"></div>
+            <div class="alerts-list" id="all-alerts-list"></div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:8px;font-size:10.5px;color:var(--muted);margin-top:4px">
+              <span>v1.0.0</span><a href="#" style="color:var(--glow);text-decoration:none">Export log</a>
+            </div>
+          </div>
+
+          <!-- Email screen -->
+          <div id="screen-email" style="display:none">
+            <div class="popup-header" style="margin-bottom:12px">
+              <div class="popup-brand-text"><h2 style="font-size:14px">Scan email</h2><p style="font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)">Local .eml analysis</p></div>
+            </div>
+            <div class="drop-zone" id="drop-zone" onclick="document.getElementById('eml-input').click()"
+                 ondragover="event.preventDefault();this.classList.add('drag')"
+                 ondragleave="this.classList.remove('drag')"
+                 ondrop="handleDrop(event)">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              <h3>Drop .eml file here or click to browse</h3>
+              <p>Local files only — no email accounts connected</p>
+              <input id="eml-input" type="file" accept=".eml,message/rfc822" style="display:none" onchange="handleFile(this.files[0])">
+            </div>
+            <div id="file-pill-wrap" style="display:none" class="file-pill">
+              <span class="name" id="file-name"></span><span class="size" id="file-size"></span>
+            </div>
+            <button class="btn-primary" style="width:100%;margin-bottom:12px" id="scan-btn" disabled onclick="scanEmail()">Scan File</button>
+            <div id="verdict-area" style="display:none"></div>
+          </div>
+
+          <!-- Bottom nav -->
+          <nav class="bottom-nav">
+            <button class="nav-btn active" id="nav-dashboard" onclick="setScreen('dashboard')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>Dashboard
+            </button>
+            <button class="nav-btn" id="nav-alerts" onclick="setScreen('alerts')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>Alerts
+            </button>
+            <button class="nav-btn" id="nav-email" onclick="setScreen('email')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>Scan Email
+            </button>
+          </nav>
+        </div>
+
+        <!-- ── CONTAIN OVERLAY — styled as Alerts tab ── -->
+        <div id="contain-overlay" class="overlay" style="display:none;align-items:flex-end;padding:0">
+          <div class="contain-sheet">
+            <!-- Sheet header -->
+            <div class="sheet-header">
+              <div>
+                <div class="sheet-title">Security Alerts</div>
+                <div class="sheet-sub">Review and respond to active events</div>
+              </div>
+              <div class="timer-ring">
+                <svg width="44" height="44" viewBox="0 0 48 48">
+                  <circle cx="24" cy="24" r="20" stroke="oklch(0.28 0.06 262)" stroke-width="3" fill="none"/>
+                  <circle id="timer-ring" cx="24" cy="24" r="20" stroke="oklch(0.78 0.17 75)" stroke-width="3" fill="none"
+                    stroke-linecap="round" stroke-dasharray="125.66" stroke-dashoffset="0"
+                    style="transition:stroke-dashoffset 1s linear;transform:rotate(-90deg);transform-origin:center"/>
+                </svg>
+                <span class="count" id="timer-count">60s</span>
+              </div>
+            </div>
+
+            <!-- Alert list — mixes system logs + the threat row -->
+            <div class="sheet-list" id="sheet-list">
+              <!-- populated by buildSheetList() -->
+            </div>
+
+            <!-- Confirm containment modal (second step) -->
+            <div id="confirm-step" style="display:none">
+              <div class="confirm-card">
+                <div class="confirm-meta" id="confirm-meta"></div>
+                <p class="modal-hint" style="margin-bottom:0">This will terminate the process and quarantine the file.</p>
+              </div>
+              <div class="modal-actions" style="margin-top:10px">
+                <button class="btn-cancel" onclick="backToList()">← Back</button>
+                <button class="btn-confirm" onclick="closeContain(true)">Confirm Containment</button>
+              </div>
+            </div>
+
+            <!-- Dismiss -->
+            <div class="sheet-footer">
+              <button class="btn-dismiss" onclick="closeContain(false)">Dismiss all alerts</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="detail-panel" class="detail-panel" style="display:none">
+          <div class="panel-header">
+            <button class="btn-back" onclick="closeDetail()">←</button>
+            <div style="flex:1">
+              <div class="panel-title" id="detail-title">—</div>
+              <div class="panel-sub" id="detail-sub">—</div>
+            </div>
+            <span class="severity-badge" id="detail-badge">—</span>
+          </div>
+          <div class="panel-body">
+            <div class="info-grid">
+              <div class="info-card"><div class="lbl">Category</div><div class="val" id="detail-cat">—</div></div>
+              <div class="info-card"><div class="lbl">Process</div><div class="val" id="detail-proc">—</div></div>
+            </div>
+            <div class="path-card"><div class="lbl">Affected path</div><div class="val" id="detail-path">—</div></div>
+            <div class="timeline">
+              <div class="lbl">Actions taken</div>
+              <ol id="detail-timeline"></ol>
+            </div>
+          </div>
+          <div class="panel-footer"><button class="btn-export">Export Report</button></div>
+        </div>
+      </div>
+
+      <!-- Closed state -->
+      <div id="popup-closed" style="display:none;width:420px;border:1px solid var(--border);border-radius:20px;background:oklch(0.21 0.05 262 / 0.4);padding:40px;text-align:center;color:var(--muted);backdrop-filter:blur(8px)">
+        <div style="color:var(--fg);margin-bottom:8px">Popup dismissed</div>
+        <button onclick="reopenPopup()" style="border:1px solid var(--border);background:transparent;color:var(--fg);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px">Reopen</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>MalTracer · Mohamed Yahia · Marwan Samy · Rodina Mohamed · Youssef Samir · Shenoda Amir · © 2026</footer>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const STATIC_ALERTS = [
+  // ── CRITICAL (2) ──────────────────────────────────────────────────────────
+  { id:"INC-2047", tone:"danger", title:"Ransomware behavior detected",
+    process:"svchost.exe",   meta:"svchost.exe · 1m ago · INC-2047",
+    category:"Ransomware",   path:"C:\\Windows\\System32\\svchost.exe",
+    timestamp:"1 min ago",
+    actions:[{label:"Mass file encryption pattern detected",at:"1m ago",ok:true},{label:"Process suspended by heuristic engine",at:"1m ago",ok:true},{label:"Awaiting analyst confirmation",at:"now"}] },
+
+  { id:"INC-2045", tone:"danger", title:"Credential dumping attempt blocked",
+    process:"lsass.exe",     meta:"lsass.exe · 7m ago · INC-2045",
+    category:"Credential theft", path:"C:\\Windows\\System32\\lsass.exe",
+    timestamp:"7 min ago",
+    actions:[{label:"Memory scraping pattern matched LSASS dump",at:"7m ago",ok:true},{label:"Access denied — process isolation applied",at:"7m ago",ok:true},{label:"Analyst review recommended",at:"now"}] },
+
+  // ── WARNING (2) ───────────────────────────────────────────────────────────
+  { id:"INC-2044", tone:"warn",   title:"Suspicious PowerShell script blocked",
+    process:"powershell.exe", meta:"powershell.exe · 12m ago · INC-2044",
+    category:"Script execution", path:"C:\\Users\\eng\\AppData\\Local\\Temp\\run.ps1",
+    timestamp:"12 min ago",
+    actions:[{label:"Encoded command intercepted",at:"12m ago",ok:true},{label:"Script execution blocked",at:"12m ago",ok:true}] },
+
+  { id:"INC-2043", tone:"warn",   title:"Executable created in user profile",
+    process:"explorer.exe",  meta:"saas-copy.exe · 18m ago · INC-2043",
+    category:"Executable created", path:"C:\\Users\\mo663\\OneDrive\\Desktop\\saas-copy.exe",
+    timestamp:"18 min ago",
+    actions:[{label:"Unsigned executable written to desktop",at:"18m ago",ok:true},{label:"File flagged — hash not in whitelist",at:"18m ago"}] },
+
+  // ── INFO (2) ──────────────────────────────────────────────────────────────
+  { id:"INC-2042", tone:"info",   title:"Unusual outbound connection detected",
+    process:"chrome.exe",    meta:"chrome.exe → 185.220.1.x · 30m ago · INC-2042",
+    category:"Network anomaly", path:"C:\\Program Files\\Google\\Chrome\\chrome.exe",
+    timestamp:"30 min ago",
+    actions:[{label:"Outbound to Tor exit node flagged by reputation engine",at:"30m ago",ok:true},{label:"Connection logged — user notified",at:"30m ago"}] },
+
+  { id:"INC-2041", tone:"info",   title:"Phishing attachment quarantined",
+    process:"invoice.pdf.exe", meta:"invoice.pdf.exe · 45m ago · INC-2041",
+    category:"Phishing",     path:"C:\\Users\\eng\\Downloads\\invoice.pdf.exe",
+    timestamp:"45 min ago",
+    actions:[{label:"Email attachment opened from Outlook",at:"47m ago"},{label:"File quarantined — double extension detected",at:"45m ago",ok:true}] },
+
+  // ── SYSTEM / OK (3) ───────────────────────────────────────────────────────
+  { id:"INC-2040", tone:"ok",     title:"System integrity scan passed",
+    process:"maltracerd",    meta:"All 1,284 files clean · 1h ago",
+    category:"System scan",  path:"C:\\Program Files\\MalTracer\\scans\\2047.log",
+    timestamp:"1 hour ago",
+    actions:[{label:"Full file-system integrity check completed",at:"1h ago",ok:true},{label:"No tampering detected",at:"1h ago",ok:true}] },
+
+  { id:"INC-2039", tone:"ok",     title:"System snapshot captured",
+    process:"maltracerd",    meta:"Baseline OK · 2h ago",
+    category:"Snapshot",     path:"C:\\Program Files\\MalTracer\\snapshots\\2040.snap",
+    timestamp:"2 hours ago",
+    actions:[{label:"Snapshot saved successfully",at:"2h ago",ok:true}] },
+
+  { id:"INC-2038", tone:"ok",     title:"Signature database updated",
+    process:"maltracerd",    meta:"v2026.04.27 · 4h ago",
+    category:"Definitions",  path:"C:\\Program Files\\MalTracer\\sigs\\v2026.04.27",
+    timestamp:"4 hours ago",
+    actions:[{label:"1,842 new signatures applied",at:"4h ago",ok:true},{label:"Engine restarted cleanly",at:"4h ago",ok:true}] },
+];
+
+let alerts = [...STATIC_ALERTS];
+let currentScreen = 'dashboard';
+let statusState   = 'active';   // active | paused | isolated
+let filterState   = 'all';
+let timerInterval = null;
+let timerSecs     = 60;
+let uptimeSecs    = 0;
+let containTarget = null;
+
+// ── CLOCK & UPTIME ────────────────────────────────────────────────────────────
+function pad(n){return String(n).padStart(2,'0');}
+function updateClock(){
+  const d=new Date();
+  document.getElementById('clock').textContent=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+function updateUptime(){
+  uptimeSecs++;
+  const h=Math.floor(uptimeSecs/3600), m=Math.floor((uptimeSecs%3600)/60), s=uptimeSecs%60;
+  document.getElementById('uptime').textContent=`${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+setInterval(updateClock,1000); setInterval(updateUptime,1000); updateClock();
+
+// ── SCREEN ────────────────────────────────────────────────────────────────────
+function setScreen(s){
+  currentScreen=s;
+  ['dashboard','alerts','email'].forEach(k=>{
+    document.getElementById(`screen-${k}`).style.display = k===s?'':'none';
+    document.getElementById(`nav-${k}`).classList.toggle('active', k===s);
+  });
+  if(s==='alerts') renderAllAlerts();
+}
+
+// ── STATUS ────────────────────────────────────────────────────────────────────
+function toggleStatus(){
+  if(statusState==='isolated') return;
+  statusState = statusState==='active'?'paused':'active';
+  applyStatus();
+}
+function toggleIsolate(){
+  statusState = statusState==='isolated'?'active':'isolated';
+  applyStatus();
+}
+function applyStatus(){
+  const pill = document.getElementById('status-pill');
+  pill.className = `status-pill status-${statusState}`;
+  const labels={active:'Active',paused:'Paused',isolated:'Isolated'};
+  document.getElementById('status-label').textContent=labels[statusState];
+  const modes={active:'Monitor',paused:'Scan',isolated:'Isolated'};
+  document.getElementById('mode-label').textContent=modes[statusState];
+  const tv = document.getElementById('threat-value');
+  const thr = statusState==='isolated'?'HIGH':statusState==='paused'?'ELEVATED':'LOW';
+  tv.textContent=thr; tv.className='threat-value '+thr.toLowerCase();
+  document.getElementById('stat-inc').textContent = statusState==='isolated'?'3':'2';
+  document.getElementById('isolate-btn').textContent = statusState==='isolated'?'Restore device':'Isolate device';
+}
+
+// ── QUICK SCAN ────────────────────────────────────────────────────────────────
+function quickScan(){
+  const el=document.getElementById('last-scan');
+  const ts=document.getElementById('threat-scan-time');
+  el.textContent='scanning…'; ts.textContent='scanning…';
+  setTimeout(()=>{ el.textContent='just now'; ts.textContent='just now'; },1100);
+}
+
+// ── RENDER ALERT ROW ──────────────────────────────────────────────────────────
+const ICON={danger:'!',warn:'!',info:'i',ok:'✓'};
+function alertRowHTML(a){
+  const contain = a.tone==='warn'?`<button class="btn-contain" onclick="event.stopPropagation();openContain('${a.id}')">Contain</button>`:'';
+  const view    = a.tone==='danger'?`<button class="btn-view" onclick="event.stopPropagation();openDetail('${a.id}')">View</button>`:'';
+  return `
+  <div class="alert-row ${a.tone==='danger'?'danger':''}" onclick="openDetail('${a.id}')">
+    <div class="alert-icon icon-${a.tone}">${ICON[a.tone]}</div>
+    <div class="alert-body">
+      <div class="alert-title">${a.title}</div>
+      <div class="alert-meta">${a.meta}</div>
+    </div>
+    ${contain}${view}
+  </div>`;
+}
+
+function renderRecentAlerts(){
+  document.getElementById('recent-alerts').innerHTML = alerts.slice(0,3).map(alertRowHTML).join('');
+}
+
+// ── ALL ALERTS SCREEN ─────────────────────────────────────────────────────────
+function renderAllAlerts(){
+  const tones=['all','danger','warn','info','ok'];
+  const labels={all:'All',danger:'Critical',warn:'Warning',info:'Info',ok:'Resolved'};
+  const counts=tones.reduce((acc,t)=>({...acc,[t]:t==='all'?alerts.length:alerts.filter(a=>a.tone===t).length}),{});
+  document.getElementById('filter-tabs').innerHTML = tones.map(t=>`
+    <button class="filter-tab ${filterState===t?'active':''}" onclick="setFilter('${t}')">
+      ${labels[t]}<span class="n">${counts[t]}</span>
+    </button>`).join('');
+  const list = filterState==='all'?alerts:alerts.filter(a=>a.tone===filterState);
+  document.getElementById('all-alerts-list').innerHTML = list.map(alertRowHTML).join('');
+}
+function setFilter(f){filterState=f; renderAllAlerts();}
+
+// ── CONTAIN SHEET ────────────────────────────────────────────────────────────
+// System-log decoys shown above/below the real threat row so a normal user
+// can see the contrast and naturally click "Contain".
+const SYSTEM_LOGS = [
+  { icon:'sicon-ok',   label:'Signature database updated',        meta:'maltracerd · 4h ago · auto' },
+  { icon:'sicon-ok',   label:'System integrity scan passed',      meta:'1,284 files checked · 1h ago' },
+  { icon:'sicon-info', label:'Network baseline recalculated',     meta:'maltracerd · 38m ago · routine' },
+  { icon:'sicon-ok',   label:'Scheduled scan completed cleanly',  meta:'maltracerd · 22m ago · routine' },
+  { icon:'sicon-info', label:'Process list snapshot captured',    meta:'maltracerd · 15m ago · auto' },
+];
+
+function buildSheetList(target){
+  // Shuffle decoys and insert threat row at index 1 or 2
+  const decoys = [...SYSTEM_LOGS].sort(()=>Math.random()-.5).slice(0,4);
+  const insertAt = 1;
+
+  const rows = decoys.map((d,i) => {
+    if(i===insertAt){
+      return threatRow(target) + systemRow(d);
+    }
+    return systemRow(d);
+  });
+  // If insertAt never triggered (list shorter), append threat row
+  if(insertAt >= decoys.length) rows.push(threatRow(target));
+
+  document.getElementById('sheet-list').innerHTML = rows.join('');
+}
+
+function systemRow(d){
+  return `<div class="sheet-row">
+    <div class="sheet-icon ${d.icon}">${d.icon.includes('ok')?'✓':'i'}</div>
+    <div class="sheet-body">
+      <div class="sheet-name">${d.label}</div>
+      <div class="sheet-meta">${d.meta}</div>
+    </div>
+  </div>`;
+}
+
+function threatRow(a){
+  const proc = a.process || 'unknown.exe';
+  const inc  = a.id;
+  return `<div class="sheet-row is-threat">
+    <div class="sheet-icon sicon-warn">!</div>
+    <div class="sheet-body">
+      <div class="sheet-name">${a.title}</div>
+      <div class="sheet-meta">${proc} · just now · ${inc}</div>
+    </div>
+    <button class="btn-sheet-contain" onclick="showConfirmStep('${inc}')">Contain</button>
+  </div>`;
+}
+
+function showConfirmStep(id){
+  containTarget = alerts.find(a=>a.id===id);
+  if(!containTarget) return;
+  document.getElementById('sheet-list').style.display='none';
+  document.getElementById('confirm-step').style.display='block';
+  document.getElementById('confirm-meta').innerHTML =
+    `process: <span class="hl">${containTarget.process}</span><br>incident: <span class="hl">${containTarget.id}</span>`;
+}
+
+function backToList(){
+  document.getElementById('sheet-list').style.display='flex';
+  document.getElementById('confirm-step').style.display='none';
+}
+
+const CIRC = 2 * Math.PI * 20; // r=20 → 125.66
+
+function openContain(id){
+  containTarget = alerts.find(a=>a.id===id);
+  if(!containTarget) return;
+
+  // Reset sheet state
+  document.getElementById('sheet-list').style.display='flex';
+  document.getElementById('confirm-step').style.display='none';
+  const sheet = document.querySelector('.contain-sheet');
+  if(sheet){ sheet.style.opacity='1'; sheet.style.transition=''; }
+  buildSheetList(containTarget);
+
+  // Reset timer
+  timerSecs=30;
+  document.getElementById('timer-count').textContent='30s';
+  document.getElementById('timer-ring').style.strokeDashoffset='0';
+  document.getElementById('contain-overlay').style.display='flex';
+
+  timerInterval=setInterval(()=>{
+    timerSecs--;
+    document.getElementById('timer-count').textContent=timerSecs+'s';
+    document.getElementById('timer-ring').style.strokeDashoffset = String(CIRC*(1-timerSecs/30));
+    if(timerSecs<=3){
+      document.querySelector('.contain-sheet').style.transition='opacity 3s ease';
+      document.querySelector('.contain-sheet').style.opacity = String(timerSecs/3);
+    }
+    if(timerSecs<=0) closeContain(false);
+  },1000);
+}
+
+function closeContain(confirmed){
+  clearInterval(timerInterval);
+  document.getElementById('contain-overlay').style.display='none';
+  if(confirmed && containTarget){
+    containTarget.tone='ok';
+    containTarget.title='✓ '+containTarget.title;
+    containTarget.meta='Contained · '+containTarget.meta;
+    containTarget.actions.push({label:'Process killed and file quarantined',at:'just now',ok:true});
+    document.getElementById('last-scan').textContent='just now';
+    document.getElementById('stat-quar').textContent=parseInt(document.getElementById('stat-quar').textContent)+1;
+    renderRecentAlerts();
+    if(currentScreen==='alerts') renderAllAlerts();
+  }
+}
+
+// ── DETAIL PANEL ──────────────────────────────────────────────────────────────
+const BADGE_CLASS={danger:'badge-danger',warn:'badge-warn',info:'badge-info',ok:'badge-ok'};
+const BADGE_TEXT ={danger:'Critical',warn:'Warning',info:'Info',ok:'Resolved'};
+function openDetail(id){
+  const a=alerts.find(x=>x.id===id); if(!a) return;
+  document.getElementById('detail-title').textContent=a.title;
+  document.getElementById('detail-sub').textContent=a.id+' · '+a.timestamp;
+  const b=document.getElementById('detail-badge');
+  b.className='severity-badge '+BADGE_CLASS[a.tone]; b.textContent=BADGE_TEXT[a.tone];
+  document.getElementById('detail-cat').textContent=a.category;
+  document.getElementById('detail-proc').textContent=a.process;
+  document.getElementById('detail-path').textContent=a.path;
+  document.getElementById('detail-timeline').innerHTML=a.actions.map(s=>`
+    <li><span class="dot ${s.ok?'dot-ok':'dot-pend'}">${s.ok?'✓':'•'}</span>
+      <div class="act">${s.label}</div><div class="ts">${s.at}</div></li>`).join('');
+  document.getElementById('detail-panel').style.display='flex';
+}
+function closeDetail(){ document.getElementById('detail-panel').style.display='none'; }
+
+// ── POPUP OPEN/CLOSE ──────────────────────────────────────────────────────────
+function closePopup(){ document.getElementById('popup').style.display='none'; document.getElementById('popup-closed').style.display='block'; }
+function reopenPopup(){ document.getElementById('popup').style.display=''; document.getElementById('popup-closed').style.display='none'; }
+
+// ── EMAIL SCAN ────────────────────────────────────────────────────────────────
+let emlFile=null;
+function handleDrop(e){ e.preventDefault(); document.getElementById('drop-zone').classList.remove('drag'); handleFile(e.dataTransfer.files[0]); }
+function handleFile(f){
+  if(!f) return;
+  emlFile=f;
+  document.getElementById('file-pill-wrap').style.display='flex';
+  document.getElementById('file-name').textContent=f.name;
+  document.getElementById('file-size').textContent=(f.size/1024).toFixed(1)+' KB';
+  document.getElementById('scan-btn').disabled=false;
+  document.getElementById('verdict-area').style.display='none';
+}
+function scanEmail(){
+  if(!emlFile) return;
+  document.getElementById('scan-btn').textContent='Scanning…'; document.getElementById('scan-btn').disabled=true;
+  setTimeout(()=>{
+    const v = /phish|invoice|malware/i.test(emlFile.name)?'malicious':/receipt|order/i.test(emlFile.name)?'suspicious':'clean';
+    const vc = {clean:'verdict-clean',suspicious:'verdict-suspicious',malicious:'verdict-malicious'}[v];
+    document.getElementById('verdict-area').style.display='block';
+    document.getElementById('verdict-area').innerHTML=`
+      <div class="verdict-row ${vc}"><span class="verdict-label">Verdict</span><span class="verdict-value">${v}</span></div>
+      ${['Headers Analysis|SPF: pass · DKIM: fail · DMARC: none. From domain mismatches Return-Path.',
+         'Body Analysis|Detected urgency keywords and 1 suspicious link redirecting to a punycode domain.',
+         'Attachments Found|1 attachment: invoice.pdf.exe (executable disguised as PDF).']
+        .map((s,i)=>{const[t,b]=s.split('|');return`<div class="accordion"><button class="accordion-head" onclick="toggleAcc(${i})">${t}<span id="acc-arr-${i}">+</span></button><div id="acc-body-${i}" class="accordion-body" style="display:none">${b}</div></div>`;}).join('')}`;
+    document.getElementById('scan-btn').textContent='Scan File'; document.getElementById('scan-btn').disabled=false;
+  },1100);
+}
+function toggleAcc(i){
+  const b=document.getElementById(`acc-body-${i}`), a=document.getElementById(`acc-arr-${i}`);
+  const open=b.style.display==='block'; b.style.display=open?'none':'block'; a.textContent=open?'+':'−';
+}
+
+// ── LIVE EVENT INJECTION (from simulate_from_logs.py via HTTP polling) ────────
+// The simulation script writes events to a temp JSON file; we poll it here.
+let lastEventCount = 0;
+function pollEvents(){
+  fetch('http://127.0.0.1:7474/events')
+    .then(r=>r.json())
+    .then(data=>{
+      if(!data.events) return;
+      const newEvents = data.events.slice(lastEventCount);
+      lastEventCount  = data.events.length;
+      newEvents.forEach(injectEvent);
+    })
+    .catch(()=>{}); // backend not running — silent
+}
+setInterval(pollEvents, 1500);
+
+function injectEvent(ev){
+  // Use enriched fields written by simulate_from_logs.py _enrich()
+  // Falls back gracefully if running against un-enriched events
+  const tone     = ev.threat_tone
+                   || (ev.level==='MEDIUM'?'warn': ev.level==='HIGH'?'danger':'info');
+  const title    = ev.threat_title
+                   || ev.message
+                   || ev.event_data?.event_type?.replace(/_/g,' ') || 'Threat detected';
+  const proc     = ev.threat_process
+                   || ev.event_data?.process_name
+                   || (ev.event_data?.destination||'').split('\\').pop()
+                   || 'unknown.exe';
+  const path     = ev.threat_path || ev.event_data?.destination || ev.event_data?.process_path || '—';
+  const category = ev.threat_category
+                   || ev.event_data?.event_type?.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())
+                   || 'Unknown';
+  const score    = ev.threat_score ?? ev.event_data?.risk_score ?? 0;
+  const action   = ev.threat_action || `Risk score: ${score}`;
+  const inc      = ev.incident_id || 'INC-LIVE';
+
+  const item = {
+    id:        inc,
+    tone,
+    title,
+    process:   proc,
+    meta:      `${proc} · just now · ${inc}`,
+    category,
+    path,
+    timestamp: 'just now',
+    actions:   [
+      {label: action, at: 'just now', ok: tone==='ok'},
+      ...(tone==='ok' ? [{label:'Auto-resolved by engine', at:'just now', ok:true}] : []),
+    ],
+  };
+
+  alerts.unshift(item);  // newest at the TOP of the list
+  showLiveBanner();
+  renderRecentAlerts();
+  if(currentScreen==='alerts') renderAllAlerts();
+
+  // Auto-open the alert sheet for warn/danger events and reset timer
+  if(tone==='warn' || tone==='danger'){
+    setTimeout(()=>{
+      // If overlay already open, just reset the timer for the new alert
+      const overlay = document.getElementById('contain-overlay');
+      if(overlay.style.display==='flex'){
+        timerSecs=30;
+        document.getElementById('timer-count').textContent='30s';
+        document.getElementById('timer-ring').style.strokeDashoffset='0';
+        clearInterval(timerInterval);
+        timerInterval=setInterval(()=>{
+          timerSecs--;
+          document.getElementById('timer-count').textContent=timerSecs+'s';
+          document.getElementById('timer-ring').style.strokeDashoffset = String(CIRC*(1-timerSecs/30));
+          if(timerSecs<=0) closeContain(false);
+        },1000);
+      } else {
+        openContain(item.id);
+      }
+    }, 500);
+  }
+}
+
+function showLiveBanner(){
+  const b=document.getElementById('live-banner');
+  b.style.display='block';
+  clearTimeout(b._t);
+  b._t=setTimeout(()=>b.style.display='none', 3000);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+renderRecentAlerts();
+</script>
+</body>
+</html>

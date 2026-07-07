@@ -1,0 +1,18 @@
+IF dst_port in [4444,1337,6666,9001]
+THEN score +30
+IF dst_ip not in local_network
+THEN score +20
+IF unknown_process makes network_connection
+THEN score +30
+IF repeated_connection_to_same_ip
+THEN score +50
+IF dst_port in [9001,9050]
+THEN score +40
+IF outbound_data_large
+THEN score +60
+IF process_name == powershell.exe
+AND network_connection
+THEN score +40
+IF new_process_started
+AND network_connection shortly_after
+THEN score +40

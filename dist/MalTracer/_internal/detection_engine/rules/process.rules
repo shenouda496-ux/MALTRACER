@@ -1,0 +1,100 @@
+# process.rules — MalTracer detection rules
+# Each rule: IF ... [AND ...] THEN score +N
+
+# ── PowerShell abuse ──────────────────────────────────────────────────────────
+IF process_name == powershell.exe
+AND command_line contains -enc
+THEN score +40
+
+IF process_name == powershell.exe
+AND command_line contains -encodedcommand
+THEN score +40
+
+IF command_line contains downloadstring
+THEN score +40
+
+IF command_line contains invoke-expression
+THEN score +30
+
+IF command_line contains iex
+THEN score +30
+
+IF command_line contains base64
+THEN score +40
+
+IF command_line contains bypass
+THEN score +30
+
+IF command_line contains hidden
+THEN score +20
+
+# ── Suspicious paths ──────────────────────────────────────────────────────────
+IF process_path contains temp
+THEN score +30
+
+IF process_path contains appdata
+THEN score +20
+
+IF process_path contains downloads
+THEN score +20
+
+# ── LOLBins — each as its own rule ───────────────────────────────────────────
+IF process_name == powershell.exe
+THEN score +30
+
+IF process_name == cmd.exe
+THEN score +20
+
+IF process_name == wmic.exe
+THEN score +30
+
+IF process_name == rundll32.exe
+THEN score +30
+
+IF process_name == certutil.exe
+THEN score +30
+
+IF process_name == bitsadmin.exe
+THEN score +30
+
+IF process_name == mshta.exe
+THEN score +30
+
+IF process_name == psexec.exe
+THEN score +50
+
+IF process_name == regsvr32.exe
+THEN score +30
+
+IF process_name == cscript.exe
+THEN score +25
+
+IF process_name == wscript.exe
+THEN score +25
+
+# ── Parent process abuse ──────────────────────────────────────────────────────
+IF parent_process == winword.exe
+THEN score +50
+
+IF parent_process == excel.exe
+THEN score +50
+
+IF parent_process == outlook.exe
+THEN score +50
+
+# ── Credential access ─────────────────────────────────────────────────────────
+IF process_name == mimikatz.exe
+THEN score +90
+
+IF command_line contains lsass
+THEN score +70
+
+IF command_line contains sekurlsa
+THEN score +80
+
+# ── Reverse shell patterns ────────────────────────────────────────────────────
+IF command_line contains /dev/tcp/
+THEN score +70
+
+IF command_line contains 0>&1
+THEN score +60

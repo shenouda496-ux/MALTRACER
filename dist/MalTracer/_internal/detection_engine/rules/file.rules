@@ -1,0 +1,42 @@
+IF event_type == file_created
+AND file_extension == .exe
+AND path contains Desktop
+THEN score +25
+
+IF event_type == file_modified
+AND file_extension == .exe
+AND path contains Desktop
+THEN score +30
+
+IF event_type == file_created
+AND file_extension == .exe
+AND path contains Downloads
+THEN score +30
+
+IF file_created
+AND path contains Startup
+THEN score +40
+IF file_modified
+AND path contains Windows/System32
+THEN score +50
+IF file_created
+AND path contains Temp
+THEN score +25
+IF many_files_modified_in_short_time
+THEN score +80
+IF file_created
+AND file_extension == .dll
+AND path contains AppData
+THEN score +35
+IF backup_files_deleted
+THEN score +70
+IF file_name similar_to system_process
+THEN score +40
+
+IF file_created
+AND file_extension == .exe
+THEN score +15
+
+IF file_modified
+AND file_extension == .exe
+THEN score +20

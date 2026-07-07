@@ -1,0 +1,366 @@
+# ============================================================
+# MalTracer Process Detection Rules
+# Enterprise Version (Reduced False Positives)
+# ============================================================
+
+
+# ------------------------------------------------------------
+# PowerShell Abuse
+# ------------------------------------------------------------
+
+IF process_name == powershell.exe
+AND command_line contains -enc
+THEN score +40
+
+IF process_name == powershell.exe
+AND command_line contains -encodedcommand
+THEN score +40
+
+IF process_name == powershell.exe
+AND command_line contains downloadstring
+THEN score +50
+
+IF process_name == powershell.exe
+AND command_line contains downloadfile
+THEN score +60
+
+IF process_name == powershell.exe
+AND command_line contains new-object net.webclient
+THEN score +60
+
+IF process_name == powershell.exe
+AND command_line contains invoke-webrequest
+THEN score +50
+
+IF process_name == powershell.exe
+AND command_line contains invoke-restmethod
+THEN score +50
+
+IF process_name == powershell.exe
+AND command_line contains invoke-expression
+THEN score +40
+
+IF process_name == powershell.exe
+AND command_line contains iex
+THEN score +40
+
+IF process_name == powershell.exe
+AND command_line contains bypass
+THEN score +30
+
+IF process_name == powershell.exe
+AND command_line contains hidden
+THEN score +30
+
+IF process_name == powershell.exe
+AND command_line contains windowstyle hidden
+THEN score +40
+
+IF process_name == powershell.exe
+AND command_line contains nop
+THEN score +20
+
+IF process_name == powershell.exe
+AND command_line contains base64
+THEN score +40
+
+IF process_name == powershell.exe
+AND command_line contains frombase64string
+THEN score +60
+
+
+# ------------------------------------------------------------
+# Suspicious Execution Paths
+# ------------------------------------------------------------
+
+IF process_name == powershell.exe
+AND process_path contains temp
+AND command_line contains -enc
+THEN score +50
+
+IF process_name == cmd.exe
+AND process_path contains temp
+AND command_line contains powershell
+THEN score +50
+
+IF process_name == powershell.exe
+AND process_path contains appdata
+AND command_line contains -enc
+THEN score +50
+
+IF process_name == cmd.exe
+AND process_path contains appdata
+AND command_line contains powershell
+THEN score +50
+
+IF process_name == powershell.exe
+AND process_path contains downloads
+AND command_line contains -enc
+THEN score +50
+
+IF process_name == cmd.exe
+AND process_path contains downloads
+AND command_line contains powershell
+THEN score +50
+# ------------------------------------------------------------
+# LOLBins (Suspicious Usage Only)
+# ------------------------------------------------------------
+
+IF process_name == certutil.exe
+AND command_line contains urlcache
+THEN score +50
+
+IF process_name == certutil.exe
+AND command_line contains http
+THEN score +50
+
+IF process_name == certutil.exe
+AND command_line contains decode
+THEN score +40
+
+IF process_name == bitsadmin.exe
+AND command_line contains transfer
+THEN score +50
+
+IF process_name == bitsadmin.exe
+AND command_line contains http
+THEN score +50
+
+IF process_name == mshta.exe
+AND command_line contains http
+THEN score +60
+
+IF process_name == mshta.exe
+AND command_line contains javascript
+THEN score +60
+
+IF process_name == rundll32.exe
+AND command_line contains javascript
+THEN score +60
+
+IF process_name == rundll32.exe
+AND command_line contains http
+THEN score +60
+
+IF process_name == regsvr32.exe
+AND command_line contains http
+THEN score +60
+
+IF process_name == regsvr32.exe
+AND command_line contains scrobj.dll
+THEN score +60
+
+IF process_name == wmic.exe
+AND command_line contains process
+THEN score +40
+
+IF process_name == psexec.exe
+THEN score +70
+
+
+# ------------------------------------------------------------
+# Office Spawning PowerShell
+# ------------------------------------------------------------
+
+IF parent_process == winword.exe
+AND process_name == powershell.exe
+THEN score +60
+
+IF parent_process == excel.exe
+AND process_name == powershell.exe
+THEN score +60
+
+IF parent_process == outlook.exe
+AND process_name == powershell.exe
+THEN score +60
+
+IF parent_process == powerpnt.exe
+AND process_name == powershell.exe
+THEN score +60
+
+
+# ------------------------------------------------------------
+# Credential Dumping
+# ------------------------------------------------------------
+
+IF process_name == mimikatz.exe
+THEN score +100
+
+IF command_line contains sekurlsa
+THEN score +90
+
+IF command_line contains lsass
+THEN score +70
+
+IF command_line contains logonpasswords
+THEN score +80
+
+IF command_line contains wdigest
+THEN score +70
+
+IF command_line contains kerberos
+THEN score +60
+
+IF command_line contains \sam
+AND command_line contains reg
+THEN score +60
+# ------------------------------------------------------------
+# Reverse Shell Indicators
+# ------------------------------------------------------------
+
+IF command_line contains /dev/tcp/
+THEN score +70
+
+IF command_line contains socket.socket
+THEN score +70
+
+IF command_line contains base64.b64decode
+THEN score +60
+
+IF command_line contains 0>&1
+THEN score +60
+
+IF command_line contains nc -e
+THEN score +70
+
+IF command_line contains ncat -e
+THEN score +70
+
+IF command_line contains socat
+THEN score +60
+
+
+# ------------------------------------------------------------
+# Malware Downloaders
+# ------------------------------------------------------------
+
+IF command_line contains wget
+AND command_line contains http
+THEN score +40
+
+IF command_line contains curl
+AND command_line contains http
+THEN score +40
+
+IF command_line contains http
+AND command_line contains exe
+THEN score +50
+
+IF command_line contains http
+AND command_line contains ps1
+THEN score +50
+
+IF command_line contains downloadstring
+AND command_line contains http
+THEN score +60
+
+
+# ------------------------------------------------------------
+# Persistence
+# ------------------------------------------------------------
+
+IF command_line contains schtasks
+THEN score +40
+
+IF command_line contains create
+AND command_line contains schtasks
+THEN score +50
+
+IF command_line contains startup
+THEN score +40
+
+IF command_line contains runonce
+THEN score +50
+
+IF command_line contains currentversion\\run
+THEN score +50
+
+
+# ------------------------------------------------------------
+# Windows Defender Tampering
+# ------------------------------------------------------------
+
+IF command_line contains set-mppreference
+THEN score +60
+
+IF command_line contains disablerealtimemonitoring
+THEN score +80
+
+IF command_line contains add-mppreference
+THEN score +60
+
+IF command_line contains removemppreference
+THEN score +60
+
+IF command_line contains exclusionpath
+THEN score +60
+
+
+# ------------------------------------------------------------
+# Encoded / Obfuscated Execution
+# ------------------------------------------------------------
+
+IF command_line contains frombase64string
+THEN score +60
+
+IF command_line contains encodedcommand
+THEN score +50
+
+IF command_line contains -enc
+AND command_line contains hidden
+THEN score +70
+
+IF command_line contains iex
+AND command_line contains downloadstring
+THEN score +80
+
+
+# ------------------------------------------------------------
+# Ransomware Indicators
+# ------------------------------------------------------------
+
+IF command_line contains vssadmin
+THEN score +60
+
+IF command_line contains delete shadows
+THEN score +80
+
+IF command_line contains wbadmin
+THEN score +60
+
+IF command_line contains bcdedit
+THEN score +50
+
+IF command_line contains recoveryenabled no
+THEN score +80
+
+IF command_line contains bootstatuspolicy ignoreallfailures
+THEN score +80
+
+
+# ------------------------------------------------------------
+# Linux Threats
+# ------------------------------------------------------------
+
+IF command_line contains chmod +x
+AND command_line contains /tmp
+THEN score +50
+
+IF command_line contains curl
+AND command_line contains bash
+THEN score +70
+
+IF command_line contains wget
+AND command_line contains bash
+THEN score +70
+
+IF command_line contains python -c
+AND command_line contains socket
+THEN score +70
+
+IF command_line contains perl
+AND command_line contains socket
+THEN score +70
+
+IF command_line contains bash -i
+THEN score +70

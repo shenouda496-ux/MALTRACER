@@ -1,0 +1,103 @@
+==========================================
+MalTracer Live Demo Tests
+==========================================
+
+=========================
+1) PowerShell Encoded Attack
+=========================
+
+powershell -nop -w hidden -EncodedCommand SQBlAHgA
+
+Expected:
+✔ Detect PowerShell abuse
+✔ Generate Alert
+✔ Risk Score
+✔ Containment
+
+
+=========================
+2) PowerShell Download Attempt
+=========================
+
+powershell -Command "Invoke-WebRequest http://example.com"
+
+Expected:
+✔ Detect suspicious PowerShell activity
+✔ Generate Alert
+
+
+=========================
+3) LOLBin Abuse (Certutil)
+=========================
+
+certutil -urlcache -f http://example.com test.txt
+
+Expected:
+✔ Detect LOLBin abuse
+✔ Generate Alert
+
+
+=========================
+4) Suspicious Execution from Temp
+=========================
+
+mkdir %TEMP%\MalTracerTest
+
+copy C:\Windows\System32\cmd.exe %TEMP%\MalTracerTest\
+
+%TEMP%\MalTracerTest\cmd.exe
+
+Expected:
+✔ Detect suspicious execution path
+✔ Generate Alert
+
+
+=========================
+5) Suspicious PowerShell from Temp
+=========================
+
+copy C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe %TEMP%\MalTracerTest\
+
+%TEMP%\MalTracerTest\powershell.exe
+
+Expected:
+✔ Detect execution from Temp
+✔ Generate Alert
+
+
+=========================
+6) Fake Malware Execution
+=========================
+
+copy C:\Windows\System32\notepad.exe %TEMP%\virus.exe
+
+%TEMP%\virus.exe
+
+Expected:
+✔ Detect executable running from suspicious location
+✔ Generate Alert (depending on rules)
+
+
+=========================
+7) PowerShell Encoded + Hidden (Best Demo)
+=========================
+
+powershell -nop -w hidden -enc SQBlAHgA
+
+Expected:
+✔ High Risk Score
+✔ Dashboard Alert
+✔ Containment
+
+
+==========================================
+Recommended Demo Order
+==========================================
+
+1. Start MalTracer
+2. Open Dashboard
+3. Run Test 1
+4. Run Test 3
+5. Run Test 4
+6. Run Test 7
+7. Show the Dashboard, Risk Scores, Alerts, and Containment Logs.

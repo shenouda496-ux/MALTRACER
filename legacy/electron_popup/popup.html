@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MalTracer</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:oklch(0.13 0.04 260/.92);
+  --card:oklch(0.20 0.05 262/.85);
+  --border:oklch(0.32 0.05 262/.55);
+  --fg:oklch(0.98 0.005 250);
+  --muted:oklch(0.72 0.03 256);
+  --primary:oklch(0.62 0.22 258);
+  --glow:oklch(0.74 0.18 245);
+  --danger:oklch(0.65 0.24 25);
+  --warn:oklch(0.78 0.17 75);
+  --info:oklch(0.74 0.18 245);
+  --ok:oklch(0.72 0.18 155);
+  --grad:linear-gradient(135deg,oklch(0.62 0.22 258),oklch(0.74 0.18 245));
+}
+html,body{
+  height:100%;background:transparent;color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:13px;overflow:hidden;-webkit-app-region:no-drag;user-select:none;
+}
+
+/* ── POPUP SHELL ── */
+.popup{
+  width:420px;height:640px;border-radius:20px;
+  border:1px solid oklch(0.38 0.06 260/.60);
+  overflow:hidden;display:flex;flex-direction:column;
+  background:
+    radial-gradient(120% 80% at 0% 0%,   oklch(0.26 0.09 258/.88) 0%,transparent 60%),
+    radial-gradient(120% 80% at 100% 0%,  oklch(0.30 0.12 250/.82) 0%,transparent 55%),
+    oklch(0.13 0.04 260/.94);
+  backdrop-filter:blur(28px) saturate(1.4);
+  -webkit-backdrop-filter:blur(28px) saturate(1.4);
+  box-shadow:0 32px 64px -16px oklch(0.05 0.05 260/.80),0 0 80px -20px oklch(0.62 0.22 258/.18);
+}
+
+/* ── TITLEBAR ── */
+.titlebar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;border-bottom:1px solid var(--border);
+  background:oklch(0.16 0.05 262/.65);flex-shrink:0;
+  -webkit-app-region:drag;
+}
+.tb-left{display:flex;align-items:center;gap:6px;-webkit-app-region:no-drag;}
+.tb-title{flex:1;text-align:center;font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--muted);}
+.tb-close{
+  width:22px;height:22px;border:none;background:transparent;color:var(--muted);
+  border-radius:4px;cursor:pointer;font-size:16px;display:grid;place-items:center;
+  transition:.15s;-webkit-app-region:no-drag;
+}
+.tb-close:hover{background:var(--danger);color:#fff;}
+
+/* ── SCREEN CONTAINER ── */
+.screens{flex:1;overflow:hidden;position:relative;}
+.screen{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  opacity:0;pointer-events:none;transition:opacity .18s;
+}
+.screen.active{opacity:1;pointer-events:all;}
+
+/* ── FOOTER NAV ── */
+.footer-nav{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  border-top:1px solid var(--border);
+  background:oklch(0.16 0.05 262/.70);flex-shrink:0;
+}
+.nav-btn{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:8px 4px;border:none;background:transparent;
+  color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;transition:.15s;
+  -webkit-app-region:no-drag;
+}
+.nav-btn:hover{color:var(--fg);}
+.nav-btn.active{color:var(--glow);background:oklch(0.62 0.22 258/.15);}
+
+/* ── SCROLL BODY ── */
+.scroll-body{
+  flex:1;overflow-y:auto;padding:12px 14px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.scroll-body::-webkit-scrollbar{width:4px;}
+.scroll-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+
+/* ── COMMON ── */
+.section-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);}
+
+.status-pill{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;
+  background:oklch(0.72 0.18 155/.15);color:var(--ok);
+}
+.status-pill .dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--ok);box-shadow:0 0 8px var(--ok);
+  animation:pulse 1.8s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+.tray-strip{
+  display:flex;justify-content:space-between;
+  padding:5px 9px;border:1px solid var(--border);border-radius:9px;
+  background:oklch(0.17 0.05 262/.55);
+  font-family:monospace;font-size:10px;color:var(--muted);
+}
+.tray-strip span{color:var(--fg);}
+.tray-strip .mode{color:var(--glow);}
+
+.threat-banner{
+  position:relative;overflow:hidden;padding:11px 14px;
+  border-radius:14px;border:1px solid var(--border);
+  background:linear-gradient(135deg,oklch(0.24 0.09 258/.88),oklch(0.38 0.16 258/.82));
+}
+.threat-banner::after{
+  content:'';position:absolute;right:-44px;top:-60px;
+  width:164px;height:164px;border-radius:50%;
+  background:var(--primary);opacity:.35;filter:blur(14px);
+}
+.threat-label{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:oklch(0.84 0.05 250);}
+.threat-value{font-size:24px;font-weight:900;letter-spacing:.04em;margin:2px 0;}
+.threat-value.low{color:var(--ok);}
+.threat-value.elevated{color:var(--warn);}
+.threat-value.critical{color:oklch(0.78 0.20 25);}
+.threat-scan{font-size:10px;color:oklch(0.86 0.04 250);}
+
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+.stat-card{padding:9px 11px;border-radius:11px;border:1px solid var(--border);background:var(--card);}
+.stat-card.alert-state{border-color:oklch(0.65 0.24 25/.50);background:oklch(0.65 0.24 25/.10);}
+.stat-card .num{font-size:18px;font-weight:700;line-height:1.2;}
+.stat-card .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-top:2px;}
+
+/* ── ALERT ROW ── */
+.alert-row{
+  display:flex;align-items:center;gap:9px;padding:8px 10px;
+  border-radius:11px;border:1px solid var(--border);background:var(--card);
+  cursor:pointer;transition:transform .12s,border-color .12s;
+  flex-shrink:0;
+}
+.alert-row:hover{transform:translateY(-1px);border-color:var(--glow);}
+.alert-row.tone-danger{animation:danger-pulse 1.6s ease-in-out infinite;}
+.alert-row.tone-warn{animation:warn-pulse 2s ease-in-out infinite;}
+.alert-row.tone-ok{border-color:oklch(0.72 0.18 155/.40);animation:none;}
+.new-row{animation:slide-in .3s ease forwards;}
+
+@keyframes danger-pulse{
+  0%,100%{box-shadow:0 0 0 1px oklch(0.65 0.24 25/.6),0 0 16px oklch(0.65 0.24 25/.4);border-color:oklch(0.65 0.24 25/.7);}
+  50%{box-shadow:0 0 0 1px oklch(0.65 0.24 25/.9),0 0 26px oklch(0.65 0.24 25/.7);border-color:oklch(0.65 0.24 25);}
+}
+@keyframes warn-pulse{
+  0%,100%{box-shadow:0 0 0 1px oklch(0.78 0.17 75/.5);border-color:oklch(0.78 0.17 75/.6);}
+  50%{box-shadow:0 0 0 1px oklch(0.78 0.17 75/.8);border-color:oklch(0.78 0.17 75);}
+}
+@keyframes slide-in{from{opacity:0;transform:translateY(-10px);}to{opacity:1;transform:translateY(0);}}
+
+.alert-icon{
+  width:28px;height:28px;border-radius:8px;flex-shrink:0;
+  display:grid;place-items:center;font-size:12px;font-weight:900;
+}
+.icon-danger{background:oklch(0.65 0.24 25/.18);color:oklch(0.82 0.20 25);}
+.icon-warn{background:oklch(0.78 0.17 75/.20);color:oklch(0.85 0.18 75);}
+.icon-info{background:oklch(0.74 0.18 245/.20);color:oklch(0.78 0.15 245);}
+.icon-ok{background:oklch(0.72 0.18 155/.18);color:var(--ok);}
+
+.alert-body{flex:1;min-width:0;}
+.alert-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.alert-meta{font-size:10px;color:var(--muted);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;}
+
+/* action buttons on the row */
+.btn-contain{
+  flex-shrink:0;padding:4px 9px;border-radius:7px;border:none;cursor:pointer;
+  background:var(--warn);color:oklch(0.15 0.04 260);font-size:10.5px;font-weight:700;transition:filter .15s;
+}
+.btn-contain:hover{filter:brightness(1.12);}
+.btn-view{
+  flex-shrink:0;padding:4px 9px;border-radius:7px;cursor:pointer;
+  background:oklch(0.65 0.24 25/.15);border:1px solid oklch(0.65 0.24 25/.6);
+  color:oklch(0.85 0.20 25);font-size:10.5px;font-weight:700;transition:background .15s;
+}
+.btn-view:hover{background:oklch(0.65 0.24 25/.28);}
+.btn-contained{
+  flex-shrink:0;padding:4px 9px;border-radius:7px;border:1px solid oklch(0.72 0.18 155/.4);
+  background:transparent;color:var(--ok);font-size:10px;font-weight:700;cursor:default;
+}
+
+/* action row buttons on dashboard */
+.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+.btn-primary{
+  padding:9px 12px;border-radius:11px;border:none;cursor:pointer;
+  background:var(--grad);color:#fff;font-size:12px;font-weight:600;
+  box-shadow:0 6px 20px -8px oklch(0.62 0.22 258/.65);transition:transform .12s;
+}
+.btn-primary:hover{transform:translateY(-1px);}
+.btn-secondary{
+  padding:9px 12px;border-radius:11px;
+  border:1px solid var(--border);background:var(--card);
+  color:var(--fg);font-size:12px;font-weight:500;cursor:pointer;transition:border-color .15s;
+}
+.btn-secondary:hover{border-color:var(--glow);}
+
+/* ── ALERTS SCREEN ── */
+.alerts-header{padding:10px 14px 4px;flex-shrink:0;}
+.alerts-header h2{font-size:14px;font-weight:800;}
+.alerts-header p{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-top:2px;}
+
+.filter-bar{display:flex;flex-wrap:wrap;gap:6px;padding:6px 14px 0;flex-shrink:0;}
+.filter-chip{
+  display:flex;align-items:center;gap:5px;padding:4px 10px;
+  border-radius:999px;border:1px solid var(--border);background:var(--card);
+  color:var(--muted);font-size:10.5px;font-weight:600;cursor:pointer;transition:.15s;
+}
+.filter-chip.active{background:var(--primary);border-color:var(--primary);color:#fff;}
+.filter-chip .n{padding:0 5px;border-radius:999px;font-size:9.5px;font-weight:700;background:oklch(1 0 0/.22);}
+
+.empty-state{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;color:var(--muted);padding:40px 20px;text-align:center;
+}
+.empty-state p{font-size:12px;line-height:1.6;}
+
+/* ── DETAIL PANEL ── */
+.detail-panel{
+  position:absolute;inset:0;
+  background:oklch(0.14 0.04 260/.97);
+  display:flex;flex-direction:column;z-index:10;
+  transform:translateX(100%);transition:transform .22s cubic-bezier(.22,1,.36,1);
+}
+.detail-panel.open{transform:translateX(0);}
+.detail-hdr{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.btn-back{
+  width:28px;height:28px;border-radius:7px;border:1px solid var(--border);
+  background:transparent;color:var(--muted);cursor:pointer;font-size:14px;
+  display:grid;place-items:center;transition:.15s;-webkit-app-region:no-drag;
+}
+.btn-back:hover{border-color:var(--glow);color:var(--fg);}
+.detail-title-block{flex:1;}
+.detail-title{font-size:13px;font-weight:700;}
+.detail-sub{font-family:monospace;font-size:10px;color:var(--muted);margin-top:2px;}
+.sev-badge{padding:3px 8px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;}
+.sev-danger{background:oklch(0.65 0.24 25/.18);color:oklch(0.82 0.20 25);}
+.sev-warn{background:oklch(0.78 0.17 75/.20);color:oklch(0.85 0.18 75);}
+.sev-info{background:oklch(0.74 0.18 245/.20);color:oklch(0.78 0.15 245);}
+.sev-ok{background:oklch(0.72 0.18 155/.18);color:var(--ok);}
+
+.detail-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;}
+.detail-body::-webkit-scrollbar{width:4px;}
+.detail-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.info-card{padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card);}
+.info-card .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+.info-card .val{font-size:12px;font-weight:600;margin-top:3px;font-family:monospace;word-break:break-all;}
+
+.path-card{padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card);}
+.path-card .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:4px;}
+.path-card .val{font-size:11px;word-break:break-all;font-family:monospace;}
+
+/* Containment status card — shown on detail for warn/danger */
+.contain-status{
+  padding:10px 12px;border-radius:10px;
+  border:1px solid oklch(0.65 0.24 25/.40);
+  background:oklch(0.65 0.24 25/.08);
+}
+.contain-status.contained{
+  border-color:oklch(0.72 0.18 155/.40);
+  background:oklch(0.72 0.18 155/.08);
+}
+.contain-status .cs-title{font-size:11.5px;font-weight:700;margin-bottom:6px;}
+.contain-status .cs-action{
+  display:flex;align-items:center;gap:7px;
+  font-size:11px;font-family:monospace;color:var(--muted);margin-bottom:3px;
+}
+.contain-status .cs-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.dot-pending{background:oklch(0.65 0.24 25);}
+.dot-done{background:var(--ok);}
+
+.timeline-card{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);}
+.timeline-card .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px;}
+.tl-list{list-style:none;padding-left:18px;border-left:1px solid var(--border);display:flex;flex-direction:column;gap:10px;}
+.tl-list li{position:relative;}
+.tl-dot{position:absolute;left:-24px;top:2px;width:13px;height:13px;border-radius:50%;display:grid;place-items:center;font-size:8px;font-weight:700;}
+.tl-ok{background:var(--ok);color:oklch(0.14 0.04 260);}
+.tl-pend{background:var(--border);color:var(--muted);}
+.tl-act{font-size:11.5px;font-weight:600;}
+.tl-ts{font-size:10px;color:var(--muted);font-family:monospace;}
+
+.detail-footer{padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;}
+.btn-contain-detail{
+  flex:1;padding:9px;border-radius:10px;border:none;cursor:pointer;
+  background:var(--warn);color:oklch(0.15 0.04 260);font-size:12px;font-weight:700;transition:filter .15s;
+}
+.btn-contain-detail:hover{filter:brightness(1.1);}
+.btn-contain-detail:disabled{background:oklch(0.72 0.18 155/.30);color:var(--ok);cursor:default;filter:none;}
+.btn-close-detail{
+  flex:1;padding:9px;border-radius:10px;
+  border:1px solid var(--border);background:transparent;
+  color:var(--fg);font-size:12px;cursor:pointer;transition:border-color .15s;
+}
+.btn-close-detail:hover{border-color:var(--glow);}
+
+/* ── SCAN EMAIL SCREEN ── */
+.drop-zone{
+  border:2px dashed var(--border);border-radius:12px;padding:28px 16px;
+  text-align:center;cursor:pointer;transition:.15s;
+  background:oklch(0.20 0.05 262/.40);
+}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--glow);background:var(--card);}
+.drop-zone h3{font-size:13px;font-weight:600;margin:10px 0 4px;}
+.drop-zone p{font-size:11px;color:var(--muted);}
+.file-pill{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 10px;border:1px solid var(--border);border-radius:10px;
+  background:var(--card);font-family:monospace;font-size:11px;
+}
+.file-pill .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.file-pill .fsize{color:var(--muted);flex-shrink:0;margin-left:8px;}
+.verdict-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:9px 12px;border-radius:12px;border:1px solid;margin-bottom:8px;
+}
+.verdict-clean{background:oklch(0.72 0.18 155/.15);border-color:oklch(0.72 0.18 155/.5);color:var(--ok);}
+.verdict-suspicious{background:oklch(0.78 0.17 75/.15);border-color:oklch(0.78 0.17 75/.5);color:var(--warn);}
+.verdict-malicious{background:oklch(0.65 0.24 25/.12);border-color:oklch(0.65 0.24 25/.5);color:var(--danger);}
+.verdict-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.14em;}
+.verdict-value{font-size:13px;font-weight:900;text-transform:uppercase;}
+.accordion{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card);margin-bottom:6px;}
+.accordion-head{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;width:100%;background:none;border:none;color:var(--fg);text-align:left;}
+.accordion-body{border-top:1px solid var(--border);padding:8px 12px;font-size:11px;color:var(--muted);background:oklch(0.14 0.04 260/.4);display:none;}
+</style>
+</head>
+<body>
+<div class="popup">
+
+  <!-- TITLEBAR -->
+  <div class="titlebar">
+    <div class="tb-left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="oklch(0.62 0.22 258)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
+    <span class="tb-title">MalTracer — Incident Response</span>
+    <button class="tb-close" onclick="window.maltracerAPI.closeWindow()">×</button>
+  </div>
+
+  <!-- SCREENS -->
+  <div class="screens">
+
+    <!-- ══ DASHBOARD ══ -->
+    <div class="screen active" id="screen-dashboard">
+      <div class="scroll-body">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:9px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="oklch(0.62 0.22 258)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 8px oklch(0.62 0.22 258/.5))"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <div>
+              <div style="font-size:14px;font-weight:900;letter-spacing:.04em;">MalTracer</div>
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Incident Response</div>
+            </div>
+          </div>
+          <div class="status-pill"><div class="dot"></div><span id="status-label">Active</span></div>
+        </div>
+
+        <div class="tray-strip">
+          <span>last scan <span id="last-scan">waiting…</span></span>
+          <span>uptime <span id="uptime">00:00:00</span></span>
+          <span>mode <span class="mode" id="mode-label">Monitor</span></span>
+        </div>
+
+        <div class="threat-banner">
+          <div class="threat-label">Threat Level</div>
+          <div class="threat-value low" id="threat-value">LOW</div>
+          <div class="threat-scan" id="threat-scan-time">Waiting for simulation events…</div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card"><div class="num">1,284</div><div class="lbl">Files Monitored</div></div>
+          <div class="stat-card"><div class="num" id="stat-proc">42</div><div class="lbl">Processes</div></div>
+          <div class="stat-card alert-state"><div class="num" id="stat-quar">0</div><div class="lbl">Quarantined</div></div>
+          <div class="stat-card alert-state"><div class="num" id="stat-inc">0</div><div class="lbl">Open Incidents</div></div>
+        </div>
+
+        <div class="section-label">Recent Alerts</div>
+        <div id="dash-list">
+          <div style="color:var(--muted);font-size:11px;padding:10px 0;text-align:center;">No alerts yet — run the simulation</div>
+        </div>
+
+        <div class="action-grid">
+          <button class="btn-primary" onclick="quickScan()">Run quick scan</button>
+          <button class="btn-secondary" id="isolate-btn" onclick="toggleIsolate()">Isolate device</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ ALERTS ══ -->
+    <div class="screen" id="screen-alerts">
+      <div class="alerts-header">
+        <h2>All alerts</h2>
+        <p>Last 24 hours</p>
+      </div>
+      <div class="filter-bar" id="filter-bar"></div>
+      <div class="scroll-body" id="alerts-scroll" style="padding-top:8px;gap:6px;">
+        <div class="empty-state" id="alerts-empty">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".4"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+          <p>No alerts yet.<br>Run the simulation to see live events here.</p>
+        </div>
+        <div id="alerts-list"></div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding:7px 14px;display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);flex-shrink:0;">
+        <span>v1.0.0</span>
+        <span style="color:var(--glow);cursor:pointer;" onclick="exportLog()">Export log</span>
+      </div>
+
+      <!-- Detail panel slides over alerts -->
+      <div class="detail-panel" id="detail-panel">
+        <div class="detail-hdr">
+          <button class="btn-back" onclick="closeDetail()">←</button>
+          <div class="detail-title-block">
+            <div class="detail-title" id="d-title">—</div>
+            <div class="detail-sub" id="d-sub">—</div>
+          </div>
+          <span class="sev-badge" id="d-badge">—</span>
+        </div>
+        <div class="detail-body">
+          <div class="info-grid">
+            <div class="info-card"><div class="lbl">Category</div><div class="val" id="d-cat">—</div></div>
+            <div class="info-card"><div class="lbl">Process</div><div class="val" id="d-proc">—</div></div>
+          </div>
+          <div class="path-card"><div class="lbl">Affected path</div><div class="val" id="d-path">—</div></div>
+          <!-- Containment status card -->
+          <div class="contain-status" id="d-contain-status">
+            <div class="cs-title" id="d-contain-title">Containment actions (simulated)</div>
+            <div id="d-contain-actions"></div>
+          </div>
+          <div class="timeline-card">
+            <div class="lbl">Event timeline</div>
+            <ol class="tl-list" id="d-timeline"></ol>
+          </div>
+        </div>
+        <div class="detail-footer">
+          <button class="btn-contain-detail" id="d-contain-btn" onclick="containFromDetail()">Contain Threat</button>
+          <button class="btn-close-detail" onclick="closeDetail()">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ SCAN EMAIL ══ -->
+    <div class="screen" id="screen-email">
+      <div class="scroll-body">
+        <div style="margin-bottom:4px;">
+          <div style="font-size:14px;font-weight:800;">Scan email</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-top:2px;">Local .eml analysis</div>
+        </div>
+        <div class="drop-zone" id="drop-zone"
+             onclick="document.getElementById('eml-input').click()"
+             ondragover="event.preventDefault();this.classList.add('drag')"
+             ondragleave="this.classList.remove('drag')"
+             ondrop="handleDrop(event)">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="oklch(0.62 0.22 258)" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+          <h3>Drop .eml file here or click to browse</h3>
+          <p>Local files only — no email accounts connected</p>
+          <input id="eml-input" type="file" accept=".eml,message/rfc822" style="display:none" onchange="handleFile(this.files[0])">
+        </div>
+        <div id="file-pill-wrap" style="display:none;" class="file-pill">
+          <span class="fname" id="file-name"></span>
+          <span class="fsize" id="file-size"></span>
+        </div>
+        <button class="btn-primary" style="width:100%;" id="scan-btn" disabled onclick="scanEmail()">Scan File</button>
+        <div id="verdict-area" style="display:none;"></div>
+      </div>
+    </div>
+
+  </div><!-- /screens -->
+
+  <!-- FOOTER NAV -->
+  <nav class="footer-nav">
+    <button class="nav-btn active" id="nav-dashboard" onclick="setScreen('dashboard')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>
+      Dashboard
+    </button>
+    <button class="nav-btn" id="nav-alerts" onclick="setScreen('alerts')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+      Alerts
+    </button>
+    <button class="nav-btn" id="nav-email" onclick="setScreen('email')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+      Scan Email
+    </button>
+  </nav>
+
+</div><!-- /popup -->
+
+<script>
+// ══ STATE ══════════════════════════════════════════════════════════════════════
+let alerts        = [];        // newest first
+let filteredTone  = 'all';
+let detailTarget  = null;      // alert currently shown in detail panel
+let isolated      = false;
+let uptimeSecs    = 0;
+let pollCount     = 0;
+
+// ══ SCREEN NAV ═════════════════════════════════════════════════════════════════
+function setScreen(s) {
+  ['dashboard','alerts','email'].forEach(k => {
+    document.getElementById(`screen-${k}`).classList.toggle('active', k===s);
+    document.getElementById(`nav-${k}`).classList.toggle('active', k===s);
+  });
+  if (s==='alerts') renderAlertsScreen();
+}
+
+// ══ ALERT INJECTION ════════════════════════════════════════════════════════════
+function injectAlert(ev) {
+  const tone     = ev.threat_tone
+                   || (ev.level==='HIGH'?'danger':ev.level==='MEDIUM'?'warn':'info');
+  const title    = ev.threat_title || ev.title || ev.message || 'Threat detected';
+  const proc     = ev.threat_process || ev.process || 'unknown.exe';
+  const inc      = ev.incident_id || 'INC-LIVE';
+  const category = ev.threat_category || ev.category || 'Unknown';
+  const path     = ev.threat_path || ev.path || '—';
+  const score    = ev.threat_score ?? ev.risk_score ?? 0;
+  const action   = ev.threat_action || `Detected — risk score ${score}`;
+
+  // Simulate what containment would do (shown in detail panel)
+  const containActions = [];
+  if (proc && proc!=='unknown.exe')
+    containActions.push({label:`Terminate process: ${proc}`, done:false});
+  if (path && path!=='—')
+    containActions.push({label:`Quarantine file: ${path.split('\\').pop()||path}`, done:false});
+  containActions.push({label:`Block process hash in engine`, done:false});
+
+  const item = {
+    id: inc, tone, title, process: proc,
+    meta: `${proc} · just now · ${inc}`,
+    category, path, score, action,
+    containActions,
+    contained: false,
+    ts: new Date().toLocaleTimeString(),
+  };
+
+  alerts.unshift(item);
+  renderDashboard();
+  renderAlertsScreen();
+  updateThreatBanner();
+  // No popup overlay — just list the alert
+}
+
+// ══ DASHBOARD RENDER ══════════════════════════════════════════════════════════
+const ICON = {danger:'!', warn:'!', info:'i', ok:'✓'};
+
+function renderDashboard() {
+  const list   = document.getElementById('dash-list');
+  const recent = alerts.slice(0, 4);
+  if (!recent.length) {
+    list.innerHTML = `<div style="color:var(--muted);font-size:11px;padding:10px 0;text-align:center;">No alerts yet — run the simulation</div>`;
+    return;
+  }
+  list.innerHTML = recent.map((a,i) => rowHTML(a, i===0)).join('');
+  const open = alerts.filter(a => !a.contained && (a.tone==='danger'||a.tone==='warn')).length;
+  const quar = alerts.filter(a => a.contained).length;
+  document.getElementById('stat-inc').textContent  = open;
+  document.getElementById('stat-quar').textContent = quar;
+}
+
+// ══ ALERTS SCREEN RENDER ══════════════════════════════════════════════════════
+function renderAlertsScreen() {
+  // Filter chips
+  const tones  = ['all','danger','warn','info','ok'];
+  const labels = {all:'All', danger:'Critical', warn:'Warning', info:'Info', ok:'Resolved'};
+  const counts = tones.reduce((acc,t) => ({
+    ...acc,
+    [t]: t==='all' ? alerts.length : alerts.filter(a => t==='ok' ? a.contained : a.tone===t && !a.contained).length
+  }), {});
+
+  document.getElementById('filter-bar').innerHTML = tones.map(t =>
+    `<div class="filter-chip${filteredTone===t?' active':''}" onclick="setFilter('${t}')">
+      ${labels[t]}<span class="n">${counts[t]}</span>
+    </div>`
+  ).join('');
+
+  let visible;
+  if (filteredTone==='ok') {
+    visible = alerts.filter(a => a.contained);
+  } else if (filteredTone==='all') {
+    visible = alerts;
+  } else {
+    visible = alerts.filter(a => a.tone===filteredTone && !a.contained);
+  }
+
+  const empty = document.getElementById('alerts-empty');
+  const list  = document.getElementById('alerts-list');
+
+  if (!alerts.length) {
+    empty.style.display = 'flex';
+    list.innerHTML = '';
+  } else {
+    empty.style.display = 'none';
+    list.innerHTML = visible.map(a => rowHTML(a, false)).join('');
+  }
+}
+
+function rowHTML(a, isNew) {
+  const effectiveTone = a.contained ? 'ok' : a.tone;
+  let actionBtn = '';
+  if (a.contained) {
+    actionBtn = `<span class="btn-contained">✓ Contained</span>`;
+  } else if (a.tone==='warn') {
+    actionBtn = `<button class="btn-contain" onclick="event.stopPropagation();containAlert('${a.id}')">Contain</button>`;
+  } else if (a.tone==='danger') {
+    actionBtn = `<button class="btn-view" onclick="event.stopPropagation();openDetail('${a.id}')">View</button>`;
+  }
+  return `<div class="alert-row tone-${effectiveTone}${isNew?' new-row':''}" onclick="openDetail('${a.id}')">
+    <div class="alert-icon icon-${effectiveTone}">${ICON[effectiveTone]}</div>
+    <div class="alert-body">
+      <div class="alert-title">${a.title}</div>
+      <div class="alert-meta">${a.meta}</div>
+    </div>${actionBtn}
+  </div>`;
+}
+
+function setFilter(t) { filteredTone=t; renderAlertsScreen(); }
+
+// ══ THREAT BANNER ═════════════════════════════════════════════════════════════
+function updateThreatBanner() {
+  const el = document.getElementById('threat-value');
+  const active = alerts.filter(a => !a.contained);
+  const hasDanger = active.some(a => a.tone==='danger');
+  const hasWarn   = active.some(a => a.tone==='warn');
+  if (hasDanger)    { el.textContent='CRITICAL'; el.className='threat-value critical'; }
+  else if (hasWarn) { el.textContent='ELEVATED'; el.className='threat-value elevated'; }
+  else              { el.textContent='LOW';       el.className='threat-value low'; }
+  document.getElementById('threat-scan-time').textContent = 'Last scan just now';
+  document.getElementById('last-scan').textContent = 'just now';
+}
+
+// ══ CONTAIN ALERT (from row button) ═══════════════════════════════════════════
+function containAlert(id) {
+  const a = alerts.find(x => x.id===id);
+  if (!a || a.contained) return;
+  a.contained = true;
+  a.containActions = a.containActions.map(c => ({...c, done:true}));
+  renderDashboard();
+  renderAlertsScreen();
+  updateThreatBanner();
+  window.maltracerAPI.contain({incident_id: a.id, process: a.process});
+  // If detail panel is showing this alert, refresh it
+  if (detailTarget && detailTarget.id===id) populateDetail(a);
+}
+
+// ══ DETAIL PANEL ══════════════════════════════════════════════════════════════
+function openDetail(id) {
+  const a = alerts.find(x => x.id===id); if (!a) return;
+  detailTarget = a;
+  populateDetail(a);
+  document.getElementById('detail-panel').classList.add('open');
+  setScreen('alerts');
+}
+
+function populateDetail(a) {
+  document.getElementById('d-title').textContent = a.title;
+  document.getElementById('d-sub').textContent   = `${a.id} · ${a.ts||'just now'}`;
+
+  const BADGE = {danger:'sev-danger Critical', warn:'sev-warn Warning', info:'sev-info Info', ok:'sev-ok Resolved'};
+  const effectiveTone = a.contained ? 'ok' : a.tone;
+  const [cls, lbl] = (BADGE[effectiveTone]||'sev-info Info').split(' ');
+  const b = document.getElementById('d-badge');
+  b.className = `sev-badge ${cls}`; b.textContent = lbl;
+
+  document.getElementById('d-cat').textContent  = a.category;
+  document.getElementById('d-proc').textContent = a.process;
+  document.getElementById('d-path').textContent = a.path;
+
+  // Containment status card
+  const cs     = document.getElementById('d-contain-status');
+  const csTitle = document.getElementById('d-contain-title');
+  const csActs  = document.getElementById('d-contain-actions');
+  const csBtn   = document.getElementById('d-contain-btn');
+
+  if (a.tone==='info' || a.tone==='ok') {
+    cs.style.display = 'none';
+    csBtn.disabled   = true;
+    csBtn.textContent = 'No action needed';
+  } else {
+    cs.style.display = 'block';
+    cs.className = a.contained ? 'contain-status contained' : 'contain-status';
+    csTitle.textContent = a.contained ? '✓ Containment applied' : 'Containment actions (pending your approval)';
+    csActs.innerHTML = a.containActions.map(c =>
+      `<div class="cs-action">
+        <div class="cs-dot ${c.done?'dot-done':'dot-pending'}"></div>
+        <span>${c.label}</span>
+       </div>`
+    ).join('');
+    csBtn.disabled    = a.contained;
+    csBtn.textContent = a.contained ? '✓ Already contained' : 'Contain Threat';
+  }
+
+  // Timeline
+  document.getElementById('d-timeline').innerHTML = [
+    {label: `Risk score: ${a.score}`, at: a.ts||'just now', ok: a.tone==='ok'},
+    {label: a.action, at: a.ts||'just now', ok: true},
+    ...(a.contained ? [{label:'Containment actions applied by analyst', at:'just now', ok:true}] : []),
+  ].map(s =>
+    `<li><span class="tl-dot ${s.ok?'tl-ok':'tl-pend'}">${s.ok?'✓':'•'}</span>
+      <div class="tl-act">${s.label}</div><div class="tl-ts">${s.at}</div></li>`
+  ).join('');
+}
+
+function containFromDetail() {
+  if (!detailTarget) return;
+  containAlert(detailTarget.id);
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+  detailTarget = null;
+}
+
+// ══ UPTIME CLOCK ══════════════════════════════════════════════════════════════
+function pad(n){return String(n).padStart(2,'0');}
+setInterval(()=>{
+  uptimeSecs++;
+  document.getElementById('uptime').textContent=
+    `${pad(Math.floor(uptimeSecs/3600))}:${pad(Math.floor((uptimeSecs%3600)/60))}:${pad(uptimeSecs%60)}`;
+},1000);
+
+// ══ LIVE POLL ═════════════════════════════════════════════════════════════════
+setInterval(()=>{
+  fetch('http://127.0.0.1:7474/events')
+    .then(r=>r.json())
+    .then(data=>{
+      if (!data.events) return;
+      const newEvs = data.events.slice(pollCount);
+      pollCount = data.events.length;
+      newEvs.forEach(injectAlert);
+    })
+    .catch(()=>{});
+}, 1500);
+
+// ══ QUICK SCAN / ISOLATE ══════════════════════════════════════════════════════
+function quickScan(){
+  document.getElementById('last-scan').textContent='scanning…';
+  setTimeout(()=>document.getElementById('last-scan').textContent='just now',1200);
+}
+function toggleIsolate(){
+  isolated=!isolated;
+  document.getElementById('isolate-btn').textContent=isolated?'Restore device':'Isolate device';
+  document.getElementById('mode-label').textContent=isolated?'Isolated':'Monitor';
+  document.getElementById('status-label').textContent=isolated?'Isolated':'Active';
+}
+
+// ══ SCAN EMAIL ════════════════════════════════════════════════════════════════
+let emlFile=null;
+function handleDrop(e){e.preventDefault();document.getElementById('drop-zone').classList.remove('drag');handleFile(e.dataTransfer.files[0]);}
+function handleFile(f){
+  if(!f)return; emlFile=f;
+  document.getElementById('file-pill-wrap').style.display='flex';
+  document.getElementById('file-name').textContent=f.name;
+  document.getElementById('file-size').textContent=(f.size/1024).toFixed(1)+' KB';
+  document.getElementById('scan-btn').disabled=false;
+  document.getElementById('verdict-area').style.display='none';
+}
+function scanEmail(){
+  if(!emlFile)return;
+  const btn=document.getElementById('scan-btn');
+  btn.textContent='Scanning…';btn.disabled=true;
+  setTimeout(()=>{
+    const v=/phish|invoice|malware/i.test(emlFile.name)?'malicious':/receipt|order/i.test(emlFile.name)?'suspicious':'clean';
+    const vc={clean:'verdict-clean',suspicious:'verdict-suspicious',malicious:'verdict-malicious'}[v];
+    document.getElementById('verdict-area').style.display='block';
+    document.getElementById('verdict-area').innerHTML=`
+      <div class="verdict-row ${vc}"><span class="verdict-label">Verdict</span><span class="verdict-value">${v}</span></div>
+      ${['Headers Analysis|SPF: pass · DKIM: fail · DMARC: none. From domain mismatches Return-Path.',
+         'Body Analysis|Urgency keywords detected and 1 suspicious link to a punycode domain.',
+         'Attachments|1 file: invoice.pdf.exe (executable disguised as PDF).']
+        .map((s,i)=>{const[t,b]=s.split('|');return`<div class="accordion"><button class="accordion-head" onclick="togAcc(${i})">${t}<span id="acarr-${i}">+</span></button><div id="acbody-${i}" class="accordion-body">${b}</div></div>`;}).join('')}`;
+    btn.textContent='Scan File';btn.disabled=false;
+  },1100);
+}
+function togAcc(i){const b=document.getElementById(`acbody-${i}`),a=document.getElementById(`acarr-${i}`);const open=b.style.display==='block';b.style.display=open?'none':'block';a.textContent=open?'+':'−';}
+
+function exportLog(){
+  const blob=new Blob([JSON.stringify(alerts,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download='maltracer-alerts.json';a.click();URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
